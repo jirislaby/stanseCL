@@ -11,9 +11,7 @@ find_package(Clang REQUIRED)
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
 
-add_library(parser MODULE ParserPlugin.cpp)
-
-add_executable(stanseCL main.cpp)
+add_library(parser ParserPlugin.cpp)
 
 if (TARGET LLVMSupport)
 	llvm_map_components_to_libnames(llvm_libs support core)
@@ -22,4 +20,7 @@ else()
 endif()
 message(STATUS "Mapped LLVM libs: ${llvm_libs}")
 
-target_link_libraries(stanseCL libclang clang-cpp ${llvm_libs})
+target_link_libraries(parser libclang clang-cpp ${llvm_libs})
+
+add_executable(stanseCL main.cpp)
+target_link_libraries(stanseCL parser)

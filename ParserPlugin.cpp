@@ -1,9 +1,13 @@
 #include <iostream>
 
+#include <clang/Frontend/CompilerInstance.h>
+#include <clang/Frontend/FrontendAction.h>
 #include <clang/StaticAnalyzer/Core/Checker.h>
 #include <clang/StaticAnalyzer/Core/CheckerManager.h>
 #include <clang/StaticAnalyzer/Core/PathSensitive/CheckerContext.h>
+#include <clang/StaticAnalyzer/Frontend/AnalysisConsumer.h>
 #include <clang/StaticAnalyzer/Frontend/CheckerRegistry.h>
+#include <clang/Tooling/Tooling.h>
 
 using namespace clang;
 using namespace ento;
@@ -37,60 +41,48 @@ public:
 	}
 };
 
+void addCustomChecker(AnalysisASTConsumer &AnalysisConsumer,
+		      AnalyzerOptions &AnOpts) {
+  AnOpts.CheckersAndPackages = {{"test.CustomChecker", true}};
+  AnalysisConsumer.AddCheckerRegistrationFn([](CheckerRegistry &Registry) {
+    Registry.addChecker<ParserPlugin>("test.CustomChecker", "Description", "");
+  });
 }
 
-void registerParserPlugin(CheckerManager &mgr) {
-	mgr.registerChecker<ParserPlugin>();
-}
+class DiagConsumer : public PathDiagnosticConsumer {
+  llvm::raw_ostream &Output;
 
-bool shouldRegisterParserPlugin(const CheckerManager &) {
-	return true;
-}
+public:
+  DiagConsumer(llvm::raw_ostream &Output) : Output(Output) {}
+  void FlushDiagnosticsImpl(std::vector<const PathDiagnostic *> &Diags,
+			    FilesMade *filesMade) override {
+    for (const auto *PD : Diags)
+      Output << PD->getCheckerName() << ":" << PD->getShortDescription() << '\n';
+  }
 
-extern "C" void clang_registerCheckers(CheckerRegistry &registry) {
-  registry.addChecker(registerParserPlugin, shouldRegisterParserPlugin,
-		      "stanseCL.MyChecker", "Example Description",
-		      "stanseCL.mychecker.documentation.nonexistent.html",
-		      false);
-#if 0
-  registry.addCheckerOption(/*OptionType*/ "bool",
-			    /*CheckerFullName*/ "stanseCL.MyChecker",
-			    /*OptionName*/ "ExampleOption",
-			    /*DefaultValStr*/ "false",
-			    /*Description*/ "This is an example checker opt.",
-			    /*DevelopmentStage*/ "released");
-#endif
-}
-
-extern "C" const char clang_analyzerAPIVersionString[] =
-    CLANG_ANALYZER_API_VERSION_STRING;
-
-#if 0
-class Consumer : public ASTConsumer {
-	void HandleTranslationUnit(ASTContext &Ctx) override {
-		auto TU = Ctx.getTranslationUnitDecl();
-		for (auto D: TU->decls())
-			if (auto FD = dyn_cast<FunctionDecl>(D)) {
-				FD->getASTContext().get;
-				clang::AnalysisDeclContext A;
-			}
-	}
+  StringRef getName() const override { return "Test"; }
 };
 
+class ParserAction : public ASTFrontendAction {
+	std::string Diags;
+	llvm::raw_string_ostream DiagsOutput;
 
-class ParserPlugin : public clang::PluginASTAction {
+public:
+  ParserAction() : DiagsOutput(Diags) {}
 
-	std::unique_ptr<ASTConsumer> CreateASTConsumer(CompilerInstance &,
-			StringRef) override {
-		return std::make_unique<Consumer>();
-	}
-
-	bool ParseArgs(const CompilerInstance &,
-			const std::vector<std::string> &) override {
-		return true;
-	}
-
+  std::unique_ptr<ASTConsumer> CreateASTConsumer(CompilerInstance &Compiler,
+						 StringRef File) override {
+    std::unique_ptr<AnalysisASTConsumer> AnalysisConsumer =
+	CreateAnalysisConsumer(Compiler);
+    AnalysisConsumer->AddDiagnosticConsumer(new DiagConsumer(DiagsOutput));
+    addCustomChecker(*AnalysisConsumer, *Compiler.getAnalyzerOpts());
+    return std::move(AnalysisConsumer);
+  }
 };
 
-static FrontendPluginRegistry::Add<ParserPlugin> X("stanseCL", "my plugin description");
-#endif
+}
+
+void runParser(const std::string &code)
+{
+	tooling::runToolOnCode(std::make_unique<ParserAction>(), code, "input.c");
+}
