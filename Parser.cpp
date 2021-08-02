@@ -9,12 +9,14 @@
 #include <clang/StaticAnalyzer/Frontend/CheckerRegistry.h>
 #include <clang/Tooling/Tooling.h>
 
+#include "Parser.h"
+
 using namespace clang;
 using namespace ento;
 
 namespace {
 
-class ParserPlugin : public Checker<check::ASTCodeBody, check::EndOfTranslationUnit> {
+class ParserChecker : public Checker<check::ASTCodeBody, check::EndOfTranslationUnit> {
 public:
 	void checkEndOfTranslationUnit(const TranslationUnitDecl *TU,
 				       AnalysisManager &,
@@ -41,43 +43,39 @@ public:
 	}
 };
 
-void addCustomChecker(AnalysisASTConsumer &AnalysisConsumer,
-		      AnalyzerOptions &AnOpts) {
-  AnOpts.CheckersAndPackages = {{"test.CustomChecker", true}};
-  AnalysisConsumer.AddCheckerRegistrationFn([](CheckerRegistry &Registry) {
-    Registry.addChecker<ParserPlugin>("test.CustomChecker", "Description", "");
-  });
-}
-
-class DiagConsumer : public PathDiagnosticConsumer {
-  llvm::raw_ostream &Output;
-
-public:
-  DiagConsumer(llvm::raw_ostream &Output) : Output(Output) {}
-  void FlushDiagnosticsImpl(std::vector<const PathDiagnostic *> &Diags,
-			    FilesMade *filesMade) override {
-    for (const auto *PD : Diags)
-      Output << PD->getCheckerName() << ":" << PD->getShortDescription() << '\n';
-  }
-
-  StringRef getName() const override { return "Test"; }
-};
-
 class ParserAction : public ASTFrontendAction {
 	std::string Diags;
 	llvm::raw_string_ostream DiagsOutput;
 
-public:
-  ParserAction() : DiagsOutput(Diags) {}
+	class DiagConsumer : public PathDiagnosticConsumer {
+		llvm::raw_ostream &Output;
 
-  std::unique_ptr<ASTConsumer> CreateASTConsumer(CompilerInstance &Compiler,
-						 StringRef File) override {
-    std::unique_ptr<AnalysisASTConsumer> AnalysisConsumer =
-	CreateAnalysisConsumer(Compiler);
-    AnalysisConsumer->AddDiagnosticConsumer(new DiagConsumer(DiagsOutput));
-    addCustomChecker(*AnalysisConsumer, *Compiler.getAnalyzerOpts());
-    return std::move(AnalysisConsumer);
-  }
+	public:
+		DiagConsumer(llvm::raw_ostream &Output) : Output(Output) {}
+
+		void FlushDiagnosticsImpl(std::vector<const PathDiagnostic *> &Diags,
+					  FilesMade *filesMade) override {
+			for (const auto *PD : Diags)
+				Output << PD->getCheckerName() << ":" << PD->getShortDescription() << '\n';
+		}
+
+		StringRef getName() const override { return "Parser"; }
+	};
+
+public:
+	ParserAction() : DiagsOutput(Diags) {}
+
+	std::unique_ptr<ASTConsumer> CreateASTConsumer(CompilerInstance &Compiler,
+						       StringRef File) override {
+	    std::unique_ptr<AnalysisASTConsumer> AnalysisConsumer =
+		    CreateAnalysisConsumer(Compiler);
+	    AnalysisConsumer->AddDiagnosticConsumer(new DiagConsumer(DiagsOutput));
+	    Compiler.getAnalyzerOpts()->CheckersAndPackages = {{"stanse.Parser", true}};
+	    AnalysisConsumer->AddCheckerRegistrationFn([](CheckerRegistry &Registry) {
+		Registry.addChecker<ParserChecker>("stanse.Parser", "Parser for stanseC", "");
+	    });
+	    return std::move(AnalysisConsumer);
+	}
 };
 
 }

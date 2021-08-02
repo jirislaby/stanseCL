@@ -11,7 +11,7 @@ find_package(Clang REQUIRED)
 message(STATUS "Found LLVM ${LLVM_PACKAGE_VERSION}")
 message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
 
-add_library(parser ParserPlugin.cpp)
+add_library(parser Parser.cpp)
 
 if (TARGET LLVMSupport)
 	llvm_map_components_to_libnames(llvm_libs support core)
